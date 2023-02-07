@@ -1,0 +1,199 @@
+#!/usr/bin/env python3
+
+import sys
+import os
+import random
+import functools
+import pathlib
+
+
+# random digits on the end just in case multiple massrens at the same time
+TEMP_FILE = "/tmp/massren_%d" % random.randint(10000, 99999)
+
+def error(*args):
+    print("ERROR:", *args, "\nAborted.", file=sys.stderr)
+    exit(1)
+
+class TempFile:
+    def __init__(self, name, rename, replacer):
+        self.name = name
+        self.rename = rename
+        self.replacer = replacer
+
+    @property
+    def tmp_file(self):
+        return os.path.join(TEMP_FILE, self.name)
+
+
+class Directory:
+    def __init__(self, path):
+        self.path = path
+        self.requires_tmp = False
+        self.renames = []
+        self.n_renames = 0
+        self.files = os.listdir(path)
+        self.files.sort()
+
+    def __len__(self):
+        return len(self.files)
+
+    def ls(self):
+        return "\n".join(self.files)
+
+    def path_of(self, file):
+        return os.path.join(self.path, file)
+
+    def rename_error(self, file, rename, message):
+        error(self.path_of(file), "->", rename, message)
+
+    def massren(self, files):
+        self.renames = []
+        self.n_renames = 0
+        tmp_files = {}
+        deleted_renames = {}
+
+        i = 0
+        while i < len(self.files):
+            file = self.files[i]
+            rename = files[i]
+
+            if file == rename:
+                i += 1
+                continue
+
+            if not rename:
+                error(file, "cannot be renamed to nothing")
+
+            if "/" in rename:
+                self.rename_error(file, rename, "contains illegal characters")
+
+            self.n_renames += 1
+
+            src = os.path.join(self.path, file)
+            dest = os.path.join(self.path, rename)
+
+            if rename in self.files:
+                self.requires_tmp = True
+
+                if rename in tmp_files:
+                    self.rename_error(file, rename, "would replace another file")
+
+                idx = self.files.index(rename)
+                tmp_file = TempFile(name=rename, rename=files[idx], replacer=file)
+                tmp_files[rename] = tmp_file
+                self.renames.append([os.path.join(self.path, tmp_file.name),
+                         tmp_file.tmp_file])
+
+                del self.files[idx]
+                del files[idx]
+            
+            if i >= len(self.files):
+                self.rename_error(file, rename, "would replace another file")
+
+            self.files[i] = rename
+
+            rel_src = os.path.relpath(src)
+            rel_dest = os.path.relpath(dest)
+
+            if len(rel_src) + len(rel_dest) < len(src) + len(dest):
+                self.renames.append([rel_src, rel_dest])
+            else:
+                self.renames.append([src, dest])
+            i += 1
+
+        for tmp_file in tmp_files.values():
+            if tmp_file.rename in self.files:
+                if tmp_file.name == tmp_file.rename:
+                    self.rename_error(tmp_file.replacer, tmp_file.name,
+                            "would replace another file")
+                else:
+                    self.rename_error(tmp_file.name, tmp_file.rename,
+                          "would replace another file")
+
+            self.files.append(tmp_file.rename)
+            self.renames.append([tmp_file.tmp_file, os.path.join(self.path, tmp_file.rename)])
+            self.n_renames += 1
+
+    def compare(self, comp):
+        path_a = pathlib.PurePath(os.path.abspath(self.path))
+        path_b = pathlib.PurePath(os.path.abspath(comp.path))
+        if path_a.is_relative_to(path_b):
+            return -1
+        if path_b.is_relative_to(path_a):
+            return 1
+        return 0
+            
+
+directories = []
+
+
+if len(sys.argv) == 1:
+    directories.append(Directory(os.getcwd()))
+
+else:
+    for path in sys.argv[1:]:
+        if not os.path.isdir(path):
+            error(path, "is not a valid directory")
+        directories.append(Directory(path))
+
+    directories.sort(key=functools.cmp_to_key(lambda a, b: a.compare(b)))
+
+combined_ls = "\n".join(d.ls() for d in directories) + "\n"
+total_files = sum(len(d) for d in directories)
+
+with open(TEMP_FILE, "w") as f:
+    f.write(combined_ls)
+
+os.system("nvim " + TEMP_FILE)
+
+with open(TEMP_FILE, "r") as f:
+    contents = f.read()
+
+os.remove(TEMP_FILE)
+
+if contents == combined_ls:
+    print("Cancelled.")
+    exit(0)
+
+renamed_files = contents.split("\n")
+
+if not renamed_files[-1]:
+    del renamed_files[-1]
+
+if len(renamed_files) != total_files:
+    error("The number of files changed")
+
+renames = []
+for directory in directories:
+    directory.massren(renamed_files[:len(directory)])
+    renamed_files = renamed_files[len(directory):]
+    renames += directory.renames
+
+requires_tmp = any(d.requires_tmp for d in directories)
+if requires_tmp:
+    os.makedirs(TEMP_FILE)
+
+largest_src = max(len(rename[0]) for rename in renames)
+for rename in renames:
+    print("%s%s-> %s" % (
+        rename[0].ljust(largest_src),
+        "\n    " if len(rename[0]) >= 80 else " ",
+        rename[1]
+    ))
+    os.rename(*rename)
+
+if requires_tmp:
+    os.rmdir(TEMP_FILE)
+
+print("\n%d file(s) renamed." % sum(d.n_renames for d in directories))
+
+
+
+"""
+1. list directories
+2. combine files
+3. edit files
+4. extract renames per directory
+5. validate renames
+6. apply renames
+"""

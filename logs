@@ -1,0 +1,457 @@
+#!/usr/bin/env python3
+
+import time
+import random
+import sys
+
+try:
+    speed = int(sys.argv[1])
+except:
+    speed = 40
+
+class GrammarParser:
+    def __init__(self, grammar_dict):
+        self.grammar_dict = grammar_dict
+        self.grammar_idxs = {}
+        for k, v in self.grammar_dict.items():
+            self.grammar_idxs[k] = 0
+            random.shuffle(v)
+        self.word_history = []
+
+    def get_grammar_word(self, grammar_word):
+        upper = grammar_word[0].isupper()
+        if upper:
+            grammar_word = grammar_word.lower()
+
+        self.grammar_idxs[grammar_word] += 1
+        idx = self.grammar_idxs[grammar_word]
+
+        if idx == len(self.grammar_dict[grammar_word]):
+            random.shuffle(self.grammar_dict[grammar_word])
+            self.grammar_idxs[grammar_word] = 0
+            idx = 0
+
+        i = 0
+        while True:
+            x = self.grammar_dict[grammar_word][idx]
+            if not x in self.word_history:
+                break
+            i += 1
+            if i > 100:
+                break
+        self.word_history.append(x)
+        if len(self.word_history) > 20:
+            self.word_history.pop(0)
+
+        return x.title() if upper else x
+
+    def parse(self, text):
+        parsed_text = ""
+
+        awaiting_A = False
+
+        i = 0
+        while i < len(text):
+            if text[i] == "[":
+                grammar_word = ""
+                i += 1
+                while text[i] != "]":
+                    grammar_word += text[i]
+                    i += 1
+                i += 1
+
+                if grammar_word == "a":
+                    i += 1
+                    awaiting_A = True
+                    continue
+
+                result = ""
+
+                n_spaces_l = len(grammar_word) - len(grammar_word.lstrip())
+                n_spaces_r = len(grammar_word) - len(grammar_word.rstrip())
+                grammar_word = grammar_word.strip()
+
+                if i >= len(text):
+                    result = self.parse(self.get_grammar_word(grammar_word))
+                    if awaiting_A:
+                        parsed_text += "an " if result[0] in "aeiou8XAEIOU" else "a "
+                        awaiting_A = False
+                    parsed_text += result
+
+                else:
+                    if text[i] == "?":
+                        n_times = int(random.random() > 0.5)
+                        i += 1
+                    elif text[i] == "*":
+                        n_times = random.randint(0, 3)
+                        i += 1
+                    elif text[i] == "+":
+                        n_times = random.randint(1, 3)
+                        i += 1
+                    elif text[i] == "\\":
+                        n_times = 1
+                        i += 1
+                    else:
+                        n_times = 1
+                        if text[i] == "]":
+                            i += 1
+
+                    for j in range(n_times):
+                        result = self.parse(self.get_grammar_word(grammar_word))
+
+                        if awaiting_A:
+                            parsed_text += "an " if result[0] in "aeiou8XAEIOU" else "a "
+                            awaiting_A = False
+                        parsed_text += n_spaces_l * " "
+                        parsed_text += result
+                        parsed_text += n_spaces_r * " "
+
+            else:
+                parsed_text += text[i]
+                i += 1
+
+        return parsed_text
+
+grammar = {
+    "item": [
+        "queue", "buffer", "client", "timer",
+        "target", "memory", "descriptor", "daemon",
+        "agent", "child", "parent", "thread", "process",
+        "[ip_address]"
+    ],
+
+    "ip_digit": [
+        "1[digit][digit]", "2[digit][digit]",
+        "[digit][digit]", "[digit]",
+    ],
+
+    "ip_address": [
+        "[ip_digit].[ip_digit].[ip_digit].[ip_digit]"
+    ],
+
+    "action_current": [
+        "restarting", "deallocating", "removing", "destroying",
+        "terminating", "starting", "stopping", "halting",
+        "finding", "suspending", "finishing", "querying",
+        "resolving", "intercepting", "tracing", "notifying",
+        "waking", "delaying", "cancelling", "setting", "getting",
+        "serializing", "transmitting", "updating", "transcoding",
+        "saving", "restoring", "logging", "dispatching",
+        "sourcing", "decoding", "generating"
+    ],
+
+    "action_past": [
+        "restarted", "deallocated", "removed", "destroyed",
+        "terminated", "started", "stopped", "halted",
+        "found", "suspended", "finished", "queried",
+        "resolved", "intercepted", "traced", "notified",
+        "woke", "delayed", "cancelled", "set",
+        "serialized", "transmitted", "updated", "transcoded",
+        "saved", "restored", "logged", "dispatched",
+        "sourced", "decoded", "generated"
+    ],
+
+    "action": [
+        "restart", "deallocate", "remove", "destroy",
+        "terminate", "start", "stop", "halt",
+        "found", "suspend", "finish", "query",
+        "resolve", "intercept", "trace", "notify",
+        "woke", "delay", "cancel", "set", "get",
+        "serialize", "transmit", "update", "transcode",
+        "save", "restore", "log", "dispatch",
+        "source", "decode", "generate",
+
+    ],
+
+    "args": [
+        "[value]", "[variable]",
+        "[value], [value]", "[variable], [variable]",
+        "[variable], [value]",
+    ],
+
+    "equals": [
+        "[equals_space]", "[equals_no_space]"
+    ],
+
+    "equals_space": [
+        " = ", " => ", " -> ",
+    ],
+
+    "equals_no_space": [
+        "=",   "=>",   "->"
+    ],
+
+    "null": [
+        "NULL", "nullptr"
+    ],
+
+    "digit": [
+        "0", "1", "2", "3", "4",
+        "5", "6", "7", "8", "9"
+    ],
+
+    "hex_digit": [
+        "0", "1", "2", "3", "4",
+        "5", "6", "7", "8", "9",
+        "a", "b", "c", "d", "e", "f"
+    ],
+
+    "integer": [
+        "[digit]", "[digit][digit]", "[digit][digit][digit]"
+    ],
+
+    "hex": [
+        "0x[hex_digit][hex_digit]",
+        "0x[hex_digit][hex_digit][hex_digit][hex_digit]"
+          "[hex_digit][hex_digit][hex_digit][hex_digit]",
+    ],
+
+    "number": [
+        "[integer]", "[hex]"
+    ],
+
+    "value": [
+        "[number]", "[null]",
+    ],
+
+    "been": [
+        "has been", "is", "is now", "state [equals_no_space]",
+        "[equals_no_space]", "was", "cannot be", "must be",
+        "will now be", "is being"
+    ],
+
+    "ended": [
+        "ended", "terminated", "segfaulted", "aborted"
+    ],
+
+    "returned": [
+        "returned", "yielded", "[ended] with", "[equals_no_space]"
+    ],
+
+    "status": [
+        "error code", "return code", "code", "status", "status code"
+    ],
+
+    "class_adj": [
+        "Distributed", "Smart", "Local", "Active",
+        "Logical", "Linked", "Main", "Default",
+        "Kernel", "User"
+    ],
+
+    "class_word": [
+        "Lib", "UserClient", "IO", "Driver",
+        "Manager", "Processor", "Buffer", "Tracer",
+        "Packet", "Server", "Wrangler", "HID",
+        "Policy", "Event", "Identifier", "Queue",
+        "Timer", "Status", "System", "Process"
+    ],
+
+    "lower_class_adj": [
+        "distributed", "smart", "local", "active",
+        "logical", "linked", "main", "default",
+        "kernel", "user"
+    ],
+
+    "lower_class_word": [
+        "lib", "userclient", "io", "driver",
+        "manager", "processor", "buffer", "tracer",
+        "packet", "server", "wrangler", "hid",
+        "policy", "event", "identifier", "queue",
+        "timer", "status", "system", "process"
+    ],
+
+    "class": [
+        "[class_lower]",
+        "[class_upper]",
+        "[class_upper]"
+    ],
+
+    "class_upper": [
+        "[class_word][class_word]",
+        "[class_word][class_word][class_word]",
+        "[class_word][class_word][class_word][class_word]",
+        "[class_adj][class_word]",
+        "[class_adj][class_word][class_word]",
+        "[class_adj][class_word][class_word][class_word]",
+    ],
+
+    "class_lower": [
+        "[lower_class_word][lower_class_word]",
+        "[lower_class_word]_[lower_class_word]",
+        "[lower_class_adj]_[lower_class_word]_[lower_class_word]",
+    ],
+
+    "method_action": [
+        "change", "set", "get", "query",
+    ],
+
+    "method_item": [
+        "state", "handler", "priority", "status",
+        "type", "idle", "manager", "parent", "opt",
+        "aggressiveness", "ports", "internals",
+        "routine", "hangup", "daemon",
+
+    ],
+
+    "variable": [
+        "state", "status", "ret", "io_read",
+        "idx", "ptr", "bytes", "buffer", "client",
+        "flag", "counter", "offset", "n",
+        "STATE", "STATUS", "RET", "IO_READ",
+        "IDX", "PTR", "BYTES", "BUFFER", "CLIENT",
+        "FLAG", "COUNTER", "OFFSET", "N",
+    ],
+
+    "method_name": [
+        "[action][Item]",
+        "[action]_[item]",
+        "[action]",
+        "[method_action][method_item]",
+        "[method_action][Method_item]",
+    ],
+
+    "method": [
+        "[method_name]",
+        "[method_name]([args])",
+        "[method_name]()",
+        "[method_name]([tag_value])",
+    ],
+
+    "warn": [
+        "[error]", "[error]:",
+        "[warning]", "[warning]:",
+    ],
+
+    "error": [
+        "ERROR", "error",
+    ],
+
+    "warning": [
+        "WARN", "warn", "warning",
+    ],
+
+    "is_deprecated": [
+        "is deprecated", "is out of date",
+        "is undefined", "returns [null]",
+        "missing entitlements",
+        "blocked by system policy",
+        "cannot be found", "missing"
+    ],
+
+    "is_bad": [
+        "[action_past]", "is not [action_past]", 
+        "is undefined", "is [null]",
+        "blocked by system policy",
+    ],
+
+        # unlock successful
+        # triggerred unnest of range 0x->0x
+        # assertion failed
+        # assertion priority 10 overrides priority 3
+        # blah blah() tag 0x
+
+    "successful": [
+        "successful",
+        "was successful",
+        "succeeded",
+        "finished with zero errors",
+        "completed.",
+    ],
+
+    "id": [
+        "idx", "id", "ptr", "val", "of",
+        "child", "segment"
+    ],
+
+    "constant": [
+        "OS_DFAULT", "USERSPACE",
+        "LOCAL", "REGISTRY", "NOTIFY",
+        "ATEXIT", "HOOK", "IO_OBJECT",
+        "OS_SEND", "OK",
+    ],
+
+    "tag_value": [
+        "tag [number]",
+        "[id][equals][number]",
+        "{[number]}",
+        "[number]"
+        "[hex]->[hex]",
+        "[constant]",
+        "[constant]",
+        "[constant]",
+    ],
+
+    "tag": [
+        "",
+        "",
+        "",
+        " [tag_value]",
+    ],
+
+    "log": [
+        "finished [action_current] [item]",
+        "[action_current] [item]",
+        "error [action_current] [item]",
+        "[method] [successful][tag]",
+        "[method] [returned] [status] [number][tag]",
+        "[method]: [variable][equals][value][tag]",
+        "[item] [been] [action_past][tag]",
+        "[item] [action][tag]",
+        "[action_current] [item] type [value]",
+        "[warn] [method_name] [is_deprecated]",
+        "[warn] [class_lower] [is_bad]",
+        "[error] [action_current] [item]",
+        "[number] [action_past]"
+    ],
+}
+
+
+class Loggy:
+    def __init__(self):
+        self.t = time.time() % 347723
+        self.parser = GrammarParser(grammar)
+        self._class = self.parser.parse("[class]")
+
+        self.min_min_sleep = 1
+        self.max_max_sleep = 40
+        self.min_sleep = 1 if speed else 0
+        self.max_sleep = speed
+        self.k = random.randint(10, 40)
+        self.i = 0
+
+
+    def get_log(self):
+        if random.random() > 0.5:
+            self._class = self.parser.parse("[class]")
+
+        # t += random.randint(1, 34802) / (34802 / 2)
+        t = time.time()
+        str_t = str(round(t, 3))
+        str_t += "0" * (str_t.index(".") - len(str_t) + 4)
+
+        start = f"[{str_t}]: {self._class}: "
+        return start + self.parser.parse("[log]")
+
+    def get_sleep(self):
+        if self.max_sleep == 0:
+            return 0;
+
+        self.i += 1
+        if self.i > self.k:
+            self.k = random.randint(10, 40)
+            self.i = 0
+            max_sleep = random.randint(self.min_min_sleep + 10, self.max_max_sleep)
+            min_sleep = random.randint(self.min_min_sleep, self.max_sleep)
+
+        return random.randint(self.min_sleep, self.max_sleep) / 200
+
+
+
+if __name__ == "__main__":
+    k = Loggy()
+    try:
+        while True:
+            print(k.get_log())
+            time.sleep(k.get_sleep())
+    except KeyboardInterrupt:
+        print()

@@ -1,0 +1,16 @@
+#!/bin/bash
+
+containers=$(dockerls)
+container=$(echo "$containers" | grep -i "$1" | tee | awk '{print $1}')
+n_containers=$(echo "$container" | wc -w)
+
+if [ "$n_containers" -eq 1 ]; then
+    docker exec -ti "$container" sh -c "cd ~ 2>/dev/null; bash"
+elif [ "$n_containers" -eq 0 ]; then
+    echo "container '$1' not found." > /dev/stderr
+    exit 1
+else
+    echo "Multiple matches found:" > /dev/stderr
+    echo "$containers" | grep -i "$1" | awk '{print " - "$2}' > /dev/stderr
+fi
+

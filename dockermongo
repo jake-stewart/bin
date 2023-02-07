@@ -1,0 +1,18 @@
+#!/bin/bash
+
+container_name="$1-mongo"
+
+containers=$(dockerls)
+container=$(echo "$containers" | grep -i "$container_name" | tee | awk '{print $1}')
+n_containers=$(echo "$container" | wc -w)
+
+if [ "$n_containers" -eq 1 ]; then
+    docker exec -ti "$container" sh -c "cd ~ 2>/dev/null; mongosh $1"
+elif [ "$n_containers" -eq 0 ]; then
+    echo "container '$container_name' not found." > /dev/stderr
+    exit 1
+else
+    echo "Multiple matches found:" > /dev/stderr
+    echo "$containers" | grep -i "$container_name" | awk '{print " - "$2}' > /dev/stderr
+fi
+
