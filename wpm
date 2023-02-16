@@ -7,6 +7,7 @@ import time
 import contextlib
 import random
 import os
+from fuzzywuzzy import fuzz
 
 N_WORDS = 10
 
@@ -23,17 +24,11 @@ VALID_KEYS = {
     "-", "_", "'", '"', ";", ":", ".", ",", "?", " "
 }
 
-
-class Color:
-    RED = 31
-
 class TerminalManager:
     def __init__(self):
         self.orig_termios = termios.tcgetattr(
             sys.stdin.fileno()
         )
-        self.style = set()
-
 
     @contextlib.contextmanager
     def raw_mode(self):
@@ -57,18 +52,6 @@ class TerminalManager:
     def print_raw(self, ch):
         print(ch, end="", flush=True)
 
-    def set_color(self, color):
-        if color not in self.style:
-            self.style.add(color)
-            return "\x1b[%dm" % color
-        return ""
-
-    def reset_style(self):
-        if self.style:
-            self.style.clear()
-            return "\x1b[0m"
-        return ""
-
 terminal = TerminalManager()
 
 def read_words(word_file, target_chars=70):
@@ -88,48 +71,35 @@ def read_words(word_file, target_chars=70):
             length = new_length + 1 
         words.append(word)
     return words
-   
-def get_accuracy(self, string):
-    total = len(self.word_string)
-    correct = 0
-    for i, char in enumerate(string):
-        if i >= len(self.word_string):
-            total += 1
-        elif self.word_string[i] == char:
-            correct += 1
-    return correct / total
 
 class Stats:
-    accuracy = 0
+    accuracy = 0.0
     cpm = 0
     wpm = 0
     chars = 0
+    words = 0
 
-def get_stats(words, input_words, duration):
-    orig_chars = sum(len(w) for w in words) + len(words) - 1
-    chars = sum(len(w) for w in input_words) + len(input_words) - 1
-    correct = len(input_words) - 1
-    for word, input_word in zip(words, input_words):
-        correct += sum(a == b for a, b in zip(word, input_word))
-    stats = Stats()
-    stats.accuracy = correct / max(chars, orig_chars)
-    stats.cpm = chars / duration * 60
-    stats.wpm = (stats.cpm / 5) * stats.accuracy
-    stats.chars = chars
-    return stats
-
+    def __init__(self, prompt_str, input_str, duration):
+        self.accuracy = fuzz.ratio(prompt_str, input_str) / 100
+        self.chars = len(input_str)
+        self.words = sum(1 if word else 0 for word in input_str.split(" "))
+        self.cpm = self.chars / duration * 60
+        self.wpm = (self.cpm / 5) * self.accuracy ** 2
 
 class GameManager:
     def __init__(self):
-        self.words = []
-        self.input_words = [""]
+        self.input = ""
+        self.prompt = ""
         self.playing = True
         self.start_time = 0
         self.end_time = 0
 
     def start(self):
-        self.words = read_words(os.getenv("HOME") + "/.config/jwpm/words.txt")
-        print(" ".join(self.words))
+        self.words = read_words(
+            os.getenv("HOME") + "/.config/jwpm/words.txt",
+            target_chars=70)
+        self.prompt = " ".join(self.words)
+        print(self.prompt)
 
         with terminal.raw_mode():
             self.mainloop()
@@ -145,48 +115,34 @@ class GameManager:
             if not self.start_time:
                 self.start_time = time.time()
             self.handle_input(ch)
-            # self.print_input()
-
-    def letter_match(self):
-        if len(self.input_words) > len(self.words):
-            return False
-        current_word = self.input_words[-1]
-        correct_word = self.words[len(self.input_words) - 1]
-        if len(current_word) > len(correct_word):
-            return False
-        return correct_word[len(current_word) - 1] == current_word[-1]
 
     def handle_input(self, ch):
         if ch == CTRL_C or ch in RETURN:
             self.playing = False
         elif ch in BACKSPACE:
-            terminal.print_raw("\b \b")
-            if self.input_words[-1]:
-                self.input_words[-1] = self.input_words[-1][:-1]
-            elif len(self.input_words) > 1:
-                self.input_words.pop()
-        elif ch == " ":
-            if self.input_words[-1]:
-                self.input_words.append("")
-            terminal.print_raw(ch)
+            if self.input:
+                terminal.print_raw("\b \b")
+                self.input = self.input[:-1]
         elif ch in VALID_KEYS:
-            self.input_words[-1] += ch
-            terminal.print_raw(terminal.reset_style()
-                    if self.letter_match() else terminal.set_color(Color.RED))
+            self.input += ch
             terminal.print_raw(ch)
 
     def print_score(self, duration):
-        print(terminal.reset_style())
-        if (self.input_words[-1]):
+        stats = Stats(self.prompt, self.input, duration)
+        if (self.input):
             print()
-        stats = get_stats(self.words, self.input_words, duration)
-        print("%d words (%d chars) in %.2f seconds with %d%% accuracy = %d WPM" % (
-            len(self.input_words),
+        fmt_str = \
+            "%d word%s (%d char%s) in %.2f seconds with %d%% accuracy = %d WPM"
+        fmt_args = (
+            stats.words,
+            "" if stats.words == 1 else "s",
             stats.chars,
+            "" if stats.chars == 1 else "s",
             duration,
             int(stats.accuracy * 100),
             round(stats.wpm)
-        ))
+        )
+        print(fmt_str % fmt_args)
 
 if __name__ == "__main__":
     game = GameManager()
